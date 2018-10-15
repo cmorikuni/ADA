@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
-{% block title %}Results by Page{% endblock %}
+{% block title %}Accessibility Report{% endblock %}
 {% block content %}
-<div class="col-sm-10 col-sm-offset-1">
+<div class="page col-sm-10 col-sm-offset-1">
   <h1>Accessibility Audit Index</h1>
 </div>
 <div class="col-sm-10 col-sm-offset-1">
@@ -27,16 +27,16 @@
       </li>
   </ul>
 </div>
+<canvas id="myChart" width="400" height="200"></canvas>
 <br />
 <div class="col-sm-10 col-sm-offset-1" style="margin-bottom: 30px;">
-  <h2 id="pages-checked" class="hd-4">Pages Checked</h2>
   <table data-classes='table table-no-bordered'
          data-toggle="table"
          data-search="true">
     <thead>
       <tr>
         <th data-field='Page' data-sortable="true">Page</th>
-        <th data-field='View Static' data-sortable="true">View Static</th>
+        <th data-field='View JSON' data-sortable="true">JSON Report</th>
         <th data-field='View Live' data-sortable="true">View Live</th>
         <th class='danger' data-field='Errors' data-sortable="true" data-width="10%" data-align="right">Errors</th>
         <th class='warning' data-field='Warnings' data-sortable="true" data-width="10%" data-align="right">Warnings</th>
@@ -46,11 +46,11 @@
     <tbody>
       {% for page in pages %}
         <tr>
-          <td><a href="{{ page.report }}" target="_blank">
+          <td><a href="{{ page.html_report }}" target="_blank">
             {{ page.url }}
           </a></td>
-          <td><a href="{{ page.img }}" target="_blank">
-            View Static
+          <td><a href="{{ page.json_report }}" target="_blank">
+            JSON Report
           </a></td>
           <td><a href="{{ page.url }}" target="_blank">
             View Live
@@ -64,3 +64,7 @@
   </table>
 </div>
 {% endblock content %}
+
+{% block scriptvars %}
+  var guides = {{ guidelines }}
+{% endblock scriptvars %}

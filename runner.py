@@ -7,6 +7,8 @@ import re
 import json
 import argparse
 import pysitemap
+from sitemapParser import PySitemapParser
+
 
 outfile = "sitemap.txt"
 
@@ -90,21 +92,20 @@ def crawlWebsite(url, outputFile):
     crawl.crawl(pool_size=10)  # 10 parsing processes
 
 
-def buildPageDict(url, outputFile):
+def buildPageDict(inputFile, outputFile):
     items = []
     pageSet = set()
-    with open(outputFile, 'r') as f:
+    with open(inputFile, 'r') as f:
         for page in f:
             page = page.rstrip()
             if not page in pageSet: # and parseUrl(page, False):
                 items.append({"url": page})
                 pageSet.add(page)
 
-        url_base = url_basename(url)
         text = json.dumps(items, indent=2)
-        with open(url_base + ".json", "w") as f:
+        with open(outputFile, "w") as f:
             f.write(text)
-        print "JSON configuration file found at: " + url_base + ".json"
+        print "JSON configuration file found at: " + outputFile
     return items
 
 
@@ -124,25 +125,24 @@ def writeJunit(res_path, results):
         TestSuite.to_file(f, ts)
 
 
-# CM:
-# create optional flags for running with crawler, running with sitemap (parser not available yet), running with defined dictionary
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="ADA Compliance Tester")
     parser.add_argument('--path', help='base path for results storage')
-    parser.add_argument('--action', choices=['crawl', 'json'], default='crawl', help='choose action to perform')
+    parser.add_argument('--action', choices=['crawl', 'sitemap', 'json'], default='crawl', help='choose action to perform')
     parser.add_argument('--url', help="url for the crawler to scan")
+    parser.add_argument('--sitemap', help="sitemap to parse")
     parser.add_argument('--jsonfile', help="json file to scan")
-    parser.add_argument('--reporttype', choices=['html', 'json'], default='html', help="choose the report type")
+    parser.add_argument('--standard', choices=['Section508', 'WCAG2A', 'WCAG2AA', 'WCAG2AAA'], default='WCAG2AA', help='choose an ADA standard')
     args = parser.parse_args()
 
     if not args.path:
         sys.exit("ERROR: a base path (--path) is not defined")
     if args.action == 'crawl' and not args.url:
         sys.exit("ERROR: crawl choosen and --url is not defined")
+    if args.action == 'sitemap' and not args.sitemap:
+        sys.exit("ERROR: sitemap choose and --sitemap is not defined")
     if args.action == 'json' and not args.jsonfile:
         sys.exit("ERROR: json choosen and --jsonfile is not defined")
-
 
     if args.action == 'crawl':
         url = parseUrl(args.url)  # url from to crawl
@@ -154,12 +154,20 @@ if __name__ == '__main__':
         print "Crawler time: " + str(delta) + "\n"
 
         # Output URL configuration file
-        items = buildPageDict(url, outfile)
+        url_base = url_basename(url)
+        items = buildPageDict(outfile, url_base + ".json")
+    elif args.action == 'sitemap':
+        PySitemapParser.PySitemapParser(args.sitemap, outfile).parse()
+
+        # Output URL configuration file
+        print os.path.splitext(args.sitemap)[0]
+        items = buildPageDict(outfile, os.path.splitext(args.sitemap)[0] + ".json")
     else:  # load from JSON file
         with open(args.jsonfile) as json_data:
             items = json.load(json_data)
 
     # Run ADA scan
+    print "Standard: " + args.standard
     print "The site has " + str(len(items)) + " pages"
     if args.action == 'json':
         resp = 'Y'
@@ -169,22 +177,26 @@ if __name__ == '__main__':
         start = datetime.now()
         # ensure that results are stored one level deeper
         res_path = os.path.join(args.path, "results")
-        pa11y = Pa11yPy(res_path, args.reporttype)
+        pa11y = Pa11yPy(res_path, args.standard)
+        itemCnt = 0
         for item in items:
+            itemCnt += 1
+            itemStatusText = "%d of %d" % (itemCnt, len(items))
             res = pa11y.process_item(item)
             if res.get("results"):
-                print "Scanned: " + json.dumps(res["results"]) + " " + res["url"]
+                print "Scanned (" + itemStatusText + "): " + json.dumps(res["results"]) + " " + res["url"]
             else:
                 print "ERROR: no results were generated from: " + item["url"]
         end = datetime.now()
         delta = end - start
         print "Processing time: " + str(delta)
 
-        print "\nSummary:"
         agg_res = pa11y.get_aggregate_results()
-        print json.dumps(agg_res, indent=2)
         pa11y.write_results_summary()
         writeJunit(args.path, agg_res)
+
+        #print "\nSummary:"
+        #print json.dumps(agg_res, indent=2)
     else:
         sys.exit("ADA scan exited without running")
 

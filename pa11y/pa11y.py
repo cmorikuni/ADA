@@ -8,6 +8,7 @@ import tempfile
 #import hashlib
 #import itertools
 import logging
+import cgi
 #from lxml import html
 from datetime import datetime
 from BeautifulSoup import BeautifulSoup as bs
@@ -19,6 +20,7 @@ from path import Path
 DEVNULL = open(os.devnull, 'wb')
 RES_PATH = "results"
 INDEX_TEMPLATE = 'index.html'
+ASSESS_TEMPLATE = 'report.html'
 
 
 def resource_path(relative_path):
@@ -54,13 +56,14 @@ class Pa11yPy(object):
         "error": 0,
         "warning": 0,
         "notice": 0,
-        "summary": []
+        "summary": [],
+        "guidelines": {}
     }
 
-    def __init__(self, path, reportType):
+    def __init__(self, path, standard):
         self.reset_aggregate_results()
         self.result_path = path
-        self.cli_flags["reporter"] = reportType
+        self.cli_flags["standard"] = standard
 
         """
         Check for proper installs and versions
@@ -155,7 +158,7 @@ class Pa11yPy(object):
             pa11y_results = self.load_pa11y_results(stdout, item)
             os.remove(config_file.name)
             self.pa11y_counts(pa11y_results, item)
-            self.write_pa11y_results(item, pa11y_results, basename)
+            self.write_pa11y_dual_results(item, pa11y_results, basename)
 
         end = datetime.now()
         delta = end - start
@@ -169,13 +172,7 @@ class Pa11yPy(object):
             return []
 
         results = stdout
-        if self.cli_flags["reporter"] == "json":
-            results = json.loads(results.decode('utf8'))
-        elif self.cli_flags["reporter"] == "html":
-            soup = bs(results)
-            title = soup.find('title')
-            if title:
-                item["title"] = title.text
+        results = json.loads(results.decode('utf8'))
 
         return results
 
@@ -186,7 +183,7 @@ class Pa11yPy(object):
         config = {
             "headers": item.get("request_headers", ""),
         }
-        # CM: turned off screen capture
+        # CM: turned off screen capture - need to create this as an arg option
         #config = {
         #    "headers": item.get("request_headers", ""),
         #    "screenCapture": filepath,
@@ -201,6 +198,118 @@ class Pa11yPy(object):
         config_file.close()
         item["img"] = filename
         return config_file
+
+
+    def pa11y_counts(self, results, item):
+        # Init counts
+        num_error = 0
+        num_warning = 0
+        num_notice = 0
+
+        if not results:
+            return
+
+        guideCntDict = {}
+        for result in results:
+            # level counts
+            if result['type'] == 'error':
+                num_error += 1
+            elif result['type'] == 'warning':
+                num_warning += 1
+            elif result['type'] == 'notice':
+                num_notice += 1
+
+            # guidelines counts
+            code = result.get("code")
+            if code:
+                if code in guideCntDict:
+                    guideCntDict[code]["count"] += 1
+                else:
+                    guideCntDict[code] = {"message": result.get("message"), "count": 1}
+
+                # Aggregate guidelines
+                if code in self.agg_result["guidelines"]:
+                    self.agg_result["guidelines"][code]["count"] += 1
+                else:
+                    self.agg_result["guidelines"][code] = {"message": result.get("message"), "count": 1}
+
+        item["results"] = {"error": num_error, "warning": num_warning, "notice": num_notice}
+        item["guidelines"] = guideCntDict
+
+        # Aggregate results for summarization
+        self.agg_result["error"] += num_error
+        self.agg_result["warning"] += num_warning
+        self.agg_result["notice"] += num_notice
+        self.agg_result["summary"].append(item)
+
+
+    def pa11y_results_basename(self, item):
+        restr = item["url"].split("//")
+        basename = restr[len(restr)-1].replace(".", "_").replace("/", "_")
+        return basename
+
+
+    def unicodeToHtmlEntities(self, text):
+        text = cgi.escape(text).encode('ascii', 'xmlcharrefreplace')
+        return text
+
+
+    # CM: change to truncated and hashed filenames for really long filenames
+    # CM: ex \\results_2018-10-08_17-08-24\\www_asbhawaii_com_node_57_mid_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_checking_biz-simple-checking.json
+    def write_pa11y_dual_results(self, item, pa11y_results, basename):
+        data = dict(item)
+        data['pa11y'] = pa11y_results
+
+        sub_path = os.path.join("pa11y", "templates")
+        temp_path = resource_path(sub_path)
+
+        loader = FileSystemLoader(searchpath=temp_path)
+        env = Environment(loader=loader)
+
+        if not os.path.exists(self.result_path):
+            os.makedirs(self.result_path)
+
+        json_file = basename + ".json"
+        json_path = os.path.join(self.result_path, json_file)
+        html_file = basename + ".html"
+        html_path = os.path.join(self.result_path, html_file)
+
+        # encode html entities
+        for res in pa11y_results:
+            res["message"] = self.unicodeToHtmlEntities(res["message"])
+            res["selector"] = self.unicodeToHtmlEntities(res["selector"])
+            res["context"] = self.unicodeToHtmlEntities(res["context"])
+
+        # Write html
+        assess_path = Path(html_path).expand()
+        self.render_template(env, assess_path, ASSESS_TEMPLATE, {
+            "pageUrl": item["url"],
+            "date": item["accessed_at"],
+            "errorCount": item["results"]["error"],
+            "warningCount": item["results"]["warning"],
+            "noticeCount": item["results"]["notice"],
+            "issues": pa11y_results,
+            "guidelines": json.dumps(item["guidelines"])
+        })
+        item["html_report"] = html_file
+
+        # Write json
+        text = data["pa11y"]
+        text = json.dumps(data, cls=DateTimeEncoder, indent=2)
+        with open(json_path, "w") as f:
+            f.write(text)
+            item["json_report"] = json_file
+
+
+    def get_aggregate_results(self):
+        return self.agg_result
+
+
+    def reset_aggregate_results(self):
+        # Reset aggregate results
+        self.agg_result = dict.fromkeys(self.agg_result, 0)
+        self.agg_result["summary"] = []
+        self.agg_result["guidelines"] = {}
 
 
     def render_template(self, env, html_path, template_filename, context):
@@ -219,88 +328,14 @@ class Pa11yPy(object):
         loader = FileSystemLoader(searchpath=temp_path)
         env = Environment(loader=loader)
 
-        index_path =Path(os.path.join(self.result_path, "summary.html")).expand()
+        index_path = Path(os.path.join(self.result_path, "summary.html")).expand()
         self.render_template(env, index_path, INDEX_TEMPLATE, {
             "pages": self.agg_result["summary"],
             "num_error": self.agg_result["error"],
             "num_warning": self.agg_result["warning"],
-            "num_notice": self.agg_result["notice"]
+            "num_notice": self.agg_result["notice"],
+            "guidelines": json.dumps(self.agg_result["guidelines"])
         })
-
-
-    def get_aggregate_results(self):
-        return self.agg_result
-
-
-    def reset_aggregate_results(self):
-        # Reset aggregate results
-        self.agg_result = dict.fromkeys(self.agg_result, 0)
-        self.agg_result["summary"] = []
-
-
-    def pa11y_counts(self, results, item):
-        # Init counts
-        num_error = 0
-        num_warning = 0
-        num_notice = 0
-
-        if not results:
-            return
-
-        if self.cli_flags["reporter"] == "json":
-            for result in results:
-                if result['type'] == 'error':
-                    num_error += 1
-                elif result['type'] == 'warning':
-                    num_warning += 1
-                elif result['type'] == 'notice':
-                    num_notice += 1
-        elif self.cli_flags["reporter"] == "html":
-            soup = bs(results)
-            counts = soup.findAll('span')
-            for count in counts:
-                cnt_text = count.text.split()
-                val = int(cnt_text[0])
-                if cnt_text[1] == "errors":
-                    num_error = val
-                elif cnt_text[1] == "warnings":
-                    num_warning = val
-                elif cnt_text[1] == "notices":
-                    num_notice = val
-        item["results"] = {"error": num_error, "warning": num_warning, "notice": num_notice}
-
-        # Aggregate results for summarization
-        self.agg_result["error"] += num_error
-        self.agg_result["warning"] += num_warning
-        self.agg_result["notice"] += num_notice
-        self.agg_result["summary"].append(item)
-
-
-    def pa11y_results_basename(self, item):
-        restr = item["url"].split("//")
-        basename = restr[len(restr)-1].replace(".", "_").replace("/", "_")
-        return basename
-
-
-    def write_pa11y_results(self, item, pa11y_results, basename):
-        data_dir = self.result_path
-        data = dict(item)
-        data['pa11y'] = pa11y_results
-
-        filename = basename + '.html'
-        if self.cli_flags["reporter"] == "json":
-            filename = basename + '.json'
-
-        filepath = os.path.join(data_dir, filename)
-        if not os.path.exists(data_dir):
-            os.makedirs(data_dir)
-
-        text = data["pa11y"]
-        if self.cli_flags["reporter"] == "json":
-            text = json.dumps(data, cls=DateTimeEncoder)
-        with open(filepath, "w") as f:
-            f.write(text)
-            item["report"] = filename
 
 
 class DateTimeEncoder(json.JSONEncoder):

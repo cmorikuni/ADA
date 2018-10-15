@@ -23,10 +23,95 @@
             .btn.btn-secondary-outline.current {
                 box-shadow: inset 0 0 0 1px #ccc, inset 0 2px 12px #ccc;
             }
+
+            html, body {
+                margin: 0;
+                padding: 0;
+                background-color: #fff;
+                font-family: Arial, Helvetica, sans-serif;
+                font-size: 16px;
+                line-height: 22px;
+                color: #333;
+            }
+            li {
+                margin-bottom: 15px;
+            }
+            h1, h2, p, pre, ul {
+                margin-top: 0;
+                margin-bottom: 0;
+            }
+            h1 {
+                margin-bottom: 10px;
+                font-size: 24px;
+                line-height: 24px;
+            }
+            h2 {
+                font-size: 16px;
+            }
+            pre {
+                white-space: pre-wrap;
+                overflow: auto;
+            }
+
+            .page {
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 25px;
+            }
+
+            .counts {
+                margin-top: 30px;
+                font-size: 20px;
+            }
+            .count {
+                display: inline-block;
+                padding: 5px;
+                border-radius: 5px;
+                border: 1px solid #eee;
+            }
+
+            .clean-list {
+                margin-left: 0;
+                padding-left: 0;
+                list-style: none;
+            }
+            .results-list {
+                margin-top: 30px;
+            }
+
+            .issue {
+                margin: 0;
+                padding: 0;
+                margin-top: 0;
+                margin-bottom: 0;
+                font-family: Arial, Helvetica, sans-serif;
+                font-size: 16px;
+                font-weight: bold;
+                line-height: 22px;
+                color: #333;
+            }
+            .result {
+                padding: 10px;
+                border-radius: 5px;
+                border: 1px solid #eee;
+            }
+            .error {
+                background-color: #fdd;
+                border-color: #ff9696;
+            }
+            .warning {
+                background-color: #ffd;
+                border-color: #e7c12b;
+            }
+            .notice {
+                background-color: #eef4ff;
+                border-color: #b6d0ff;
+            }
         </style>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.1.0/jquery.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-table/1.11.1/bootstrap-table.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.4.0/Chart.min.js"></script>
         <script type="text/javascript">
             $(document).ready(function(){
                 // Add a label to the seach bar.
@@ -48,9 +133,43 @@
                 });
             });
         </script>
-        <title>{% block title %}Audit Results{% endblock %} - pa11ycrawler</title>
+        <title>{% block title %}Audit Results{% endblock %}</title>
     </head>
     <body>
         {% block content %}{% endblock %}
+
+        <script>
+        {% block scriptvars %}{% endblock %}
+        var guide_labels = []
+        var guide_data = []
+        for (guide in guides) {
+            guide_labels.push(guide);
+            guide_data.push(guides[guide]["count"])
+        }
+
+        var ctx = document.getElementById("myChart").getContext('2d');
+        var myChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: guide_labels,
+                datasets: [{
+                    data: guide_data,
+                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                    borderColor: 'rgba(255,99,132,1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                legend: { display: false },
+                scales: {
+                    yAxes: [{
+                        ticks: {
+                            beginAtZero:true
+                        }
+                    }]
+                }
+            }
+        });
+        </script>
     </body>
 </html>
